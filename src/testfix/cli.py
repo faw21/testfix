@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -132,6 +133,116 @@ def _do_fix_cycle(
     return 1
 
 
+# ── Watch mode ────────────────────────────────────────────────────────────────
+
+_WATCH_EXTENSIONS = (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".rb")
+_WATCH_EXCLUDE = frozenset({
+    ".venv", "venv", "__pycache__", ".git", "node_modules",
+    "dist", "build", ".tox", ".eggs", "*.egg-info",
+})
+
+
+def _collect_mtimes(cwd: str) -> dict[str, float]:
+    """Snapshot mtime for all source files under cwd."""
+    root = Path(cwd)
+    mtimes: dict[str, float] = {}
+    for ext in _WATCH_EXTENSIONS:
+        for p in root.rglob(f"*{ext}"):
+            if any(part in _WATCH_EXCLUDE for part in p.parts):
+                continue
+            if p.suffix + ".testfix.bak" == p.name:
+                continue
+            try:
+                mtimes[str(p)] = p.stat().st_mtime
+            except OSError:
+                pass
+    return mtimes
+
+
+def _changed_files(old: dict[str, float], new: dict[str, float]) -> list[str]:
+    """Return paths that are new or have a different mtime."""
+    changed = []
+    for path, mtime in new.items():
+        if old.get(path) != mtime:
+            changed.append(path)
+    return changed
+
+
+def _do_watch_mode(
+    command: list[str],
+    *,
+    cwd: str,
+    max_tries: int,
+    provider: str,
+    model: Optional[str],
+    focus_file: Optional[str],
+    verbose: bool,
+    poll_interval: float = 1.0,
+) -> int:
+    """
+    Watch mode: monitor source files and auto-fix failures on change.
+
+    Returns:
+        130 — exited via Ctrl+C
+    """
+    console.print(
+        Panel(
+            f"[bold cyan]👁  Watch mode[/]  [dim]polling every {poll_interval:.0f}s[/]\n"
+            f"  Command: [bold]{' '.join(command)}[/]\n"
+            f"  Ctrl+C to stop",
+            border_style="cyan",
+        )
+    )
+
+    mtimes = _collect_mtimes(cwd)
+
+    # Run once at startup
+    console.rule("[dim]Initial run[/]")
+    _do_fix_cycle(
+        command,
+        cwd=cwd,
+        max_tries=max_tries,
+        provider=provider,
+        model=model,
+        dry_run=False,
+        focus_file=focus_file,
+        verbose=verbose,
+    )
+
+    try:
+        while True:
+            time.sleep(poll_interval)
+            new_mtimes = _collect_mtimes(cwd)
+            changed = _changed_files(mtimes, new_mtimes)
+            mtimes = new_mtimes
+
+            if not changed:
+                continue
+
+            rel_names = []
+            for f in changed[:3]:
+                try:
+                    rel_names.append(str(Path(f).relative_to(cwd)))
+                except ValueError:
+                    rel_names.append(Path(f).name)
+
+            console.rule(f"[dim]Changed: {', '.join(rel_names)}[/]")
+            _do_fix_cycle(
+                command,
+                cwd=cwd,
+                max_tries=max_tries,
+                provider=provider,
+                model=model,
+                dry_run=False,
+                focus_file=focus_file,
+                verbose=verbose,
+            )
+
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch mode stopped.[/]")
+        return 130
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 
@@ -180,6 +291,12 @@ def _do_fix_cycle(
     is_flag=True,
     help="Show full stderr output from test runner.",
 )
+@click.option(
+    "--watch",
+    "-w",
+    is_flag=True,
+    help="Watch for file changes and auto-fix test failures in real time.",
+)
 @click.version_option(__version__, "--version")
 def main(
     test_command: tuple,
@@ -190,6 +307,7 @@ def main(
     model: Optional[str],
     focus_file: Optional[str],
     verbose: bool,
+    watch: bool,
 ) -> None:
     """
     Run tests. If they fail, ask AI to fix them. Repeat until they pass.
@@ -202,6 +320,7 @@ def main(
         testfix --dry-run pytest
         testfix --provider ollama pytest
         testfix --once npm test
+        testfix --watch pytest
     """
     from dotenv import load_dotenv
     load_dotenv(override=True)
@@ -210,25 +329,37 @@ def main(
     effective_max = 2 if once else max_tries
     command = list(test_command)
 
-    console.print(
-        Panel(
-            f"[bold]testfix[/] v{__version__}  "
-            f"[dim]command:[/] {' '.join(command)}  "
-            f"[dim]provider:[/] {provider}  "
-            f"[dim]max-tries:[/] {effective_max}",
-            border_style="blue",
+    if not watch:
+        console.print(
+            Panel(
+                f"[bold]testfix[/] v{__version__}  "
+                f"[dim]command:[/] {' '.join(command)}  "
+                f"[dim]provider:[/] {provider}  "
+                f"[dim]max-tries:[/] {effective_max}",
+                border_style="blue",
+            )
         )
-    )
 
-    exit_code = _do_fix_cycle(
-        command,
-        cwd=cwd,
-        max_tries=effective_max,
-        provider=provider,
-        model=model,
-        dry_run=dry_run,
-        focus_file=focus_file,
-        verbose=verbose,
-    )
+    if watch:
+        exit_code = _do_watch_mode(
+            command,
+            cwd=cwd,
+            max_tries=effective_max,
+            provider=provider,
+            model=model,
+            focus_file=focus_file,
+            verbose=verbose,
+        )
+    else:
+        exit_code = _do_fix_cycle(
+            command,
+            cwd=cwd,
+            max_tries=effective_max,
+            provider=provider,
+            model=model,
+            dry_run=dry_run,
+            focus_file=focus_file,
+            verbose=verbose,
+        )
 
     sys.exit(exit_code)

@@ -1,10 +1,10 @@
 """Tests for testfix.cli module."""
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from click.testing import CliRunner
 
-from testfix.cli import main
+from testfix.cli import main, _collect_mtimes, _changed_files
 from testfix.runner import RunResult, TestFailure
 from testfix.fixer import FixResult, FilePatch
 
@@ -65,7 +65,7 @@ def test_main_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "0.2.0" in result.output
 
 
 def test_main_once_flag():
@@ -118,3 +118,97 @@ def test_main_fix_and_pass():
 
     assert result.exit_code == 0
     assert "All tests pass" in result.output
+
+
+# ── Watch mode helpers ─────────────────────────────────────────────────────────
+
+
+def test_collect_mtimes_returns_dict(tmp_path):
+    (tmp_path / "app.py").write_text("x = 1\n")
+    (tmp_path / "utils.py").write_text("y = 2\n")
+    mtimes = _collect_mtimes(str(tmp_path))
+    assert any("app.py" in k for k in mtimes)
+    assert all(isinstance(v, float) for v in mtimes.values())
+
+
+def test_collect_mtimes_skips_venv(tmp_path):
+    venv = tmp_path / ".venv" / "lib"
+    venv.mkdir(parents=True)
+    (venv / "hidden.py").write_text("# site-package\n")
+    mtimes = _collect_mtimes(str(tmp_path))
+    assert not any(".venv" in k for k in mtimes)
+
+
+def test_changed_files_detects_modification():
+    old = {"a.py": 1.0, "b.py": 2.0}
+    new = {"a.py": 1.0, "b.py": 3.0}  # b.py changed
+    changed = _changed_files(old, new)
+    assert "b.py" in changed
+    assert "a.py" not in changed
+
+
+def test_changed_files_detects_new_file():
+    old = {"a.py": 1.0}
+    new = {"a.py": 1.0, "c.py": 5.0}
+    changed = _changed_files(old, new)
+    assert "c.py" in changed
+
+
+def test_watch_mode_runs_then_stops(tmp_path):
+    """Watch mode runs initial test cycle and exits cleanly on KeyboardInterrupt."""
+    runner = CliRunner()
+
+    call_count = {"n": 0}
+
+    def fake_run_tests(cmd, cwd=None):
+        call_count["n"] += 1
+        return _passing_run()
+
+    def fake_sleep(_interval):
+        raise KeyboardInterrupt()
+
+    with patch("testfix.cli.run_tests", side_effect=fake_run_tests), \
+         patch("testfix.cli.time.sleep", side_effect=fake_sleep), \
+         patch("testfix.cli._collect_mtimes", return_value={}):
+        result = runner.invoke(main, ["--watch", "pytest"])
+
+    # Initial run should have happened
+    assert call_count["n"] >= 1
+    assert result.exit_code == 130  # Ctrl+C exit code
+
+
+def test_watch_mode_triggers_on_change(tmp_path):
+    """Watch mode re-runs tests when file change detected."""
+    runner = CliRunner()
+
+    run_count = {"n": 0}
+    sleep_count = {"n": 0}
+
+    def fake_run_tests(cmd, cwd=None):
+        run_count["n"] += 1
+        return _passing_run()
+
+    snapshot_a = {"file.py": 1.0}
+    snapshot_b = {"file.py": 2.0}  # mtime changed
+
+    mtime_returns = [snapshot_a, snapshot_b]
+    mtime_idx = {"i": 0}
+
+    def fake_collect_mtimes(_cwd):
+        idx = mtime_idx["i"]
+        mtime_idx["i"] = min(idx + 1, len(mtime_returns) - 1)
+        return mtime_returns[idx]
+
+    def fake_sleep(_interval):
+        sleep_count["n"] += 1
+        if sleep_count["n"] >= 2:
+            raise KeyboardInterrupt()
+
+    with patch("testfix.cli.run_tests", side_effect=fake_run_tests), \
+         patch("testfix.cli.time.sleep", side_effect=fake_sleep), \
+         patch("testfix.cli._collect_mtimes", side_effect=fake_collect_mtimes):
+        result = runner.invoke(main, ["--watch", "pytest"])
+
+    # Should have run at least twice: initial + after change
+    assert run_count["n"] >= 2
+    assert result.exit_code == 130
