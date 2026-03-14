@@ -5,6 +5,8 @@ __pycache__/
 dist/
 *.egg-info/
 .pytest_cache/
-.testfix.bak
+.coverage
+htmlcov/
 *.testfix.bak
 .env
+.critiq-report/
