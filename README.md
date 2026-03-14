@@ -1,5 +1,8 @@
 # testfix
 
+[![PyPI version](https://img.shields.io/pypi/v/testfix-ai.svg)](https://pypi.org/project/testfix-ai/)
+[![Python](https://img.shields.io/pypi/pyversions/testfix-ai.svg)](https://pypi.org/project/testfix-ai/)
+
 > AI-powered CLI that automatically fixes failing tests — non-interactive, pipeable, CI-ready.
 
 ```bash
