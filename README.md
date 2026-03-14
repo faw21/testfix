@@ -2,6 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/testfix-ai.svg)](https://pypi.org/project/testfix-ai/)
 [![Python](https://img.shields.io/pypi/pyversions/testfix-ai.svg)](https://pypi.org/project/testfix-ai/)
+[![Tests](https://github.com/faw21/testfix/actions/workflows/tests.yml/badge.svg)](https://github.com/faw21/testfix/actions/workflows/tests.yml)
 
 > AI-powered CLI that automatically fixes failing tests — non-interactive, pipeable, CI-ready.
 
