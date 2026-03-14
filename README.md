@@ -85,6 +85,9 @@ testfix --provider openai --model gpt-4o pytest
 # Focus fixes on a specific source file
 testfix --file src/auth.py pytest
 
+# Watch mode: auto-fix whenever source files change (v0.2+)
+testfix --watch pytest
+
 # Works with any test runner
 testfix npm test
 testfix go test ./...
@@ -137,13 +140,33 @@ testfix --provider ollama pytest
 5. **Apply** patches (with `.testfix.bak` backups)
 6. **Repeat** until all tests pass or max tries reached
 
-## CI usage
+## Watch Mode (v0.2+)
+
+Automatically re-run and fix tests as you edit source files:
+
+```bash
+testfix --watch pytest
+```
+
+Polls for file changes every 2 seconds, re-runs on modification, and applies AI fixes until green. Press `Ctrl+C` to stop.
+
+## GitHub Actions
+
+Use [testfix-action](https://github.com/faw21/testfix-action) for a zero-config CI integration:
 
 ```yaml
-# GitHub Actions
+- uses: faw21/testfix-action@v1
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    test_command: pytest
+```
+
+Or use the CLI directly:
+
+```yaml
 - name: Fix and test
   run: |
-    pip install testfix
+    pip install testfix-ai
     testfix --provider openai --max-tries 3 pytest
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -183,10 +206,11 @@ pip install standup-ai critiq testfix gpr gitbrief changelog-ai
 
 ## Related tools
 
+- [testfix-action](https://github.com/faw21/testfix-action) — this tool as a GitHub Action
 - [critiq](https://github.com/faw21/critiq) — AI code reviewer (catches issues before they become failing tests)
 - [difftests](https://github.com/faw21/difftests) — AI test generator (generates tests for your diffs)
+- [mergefix](https://github.com/faw21/mergefix) — AI merge conflict resolver
 - [gpr](https://github.com/faw21/gpr) — AI PR description generator
-- [gitbrief](https://github.com/faw21/gitbrief) — AI context packer for LLMs
 - [standup-ai](https://github.com/faw21/standup-ai) — AI daily standup generator
 - [changelog-ai](https://github.com/faw21/changelog-ai) — AI changelog generator
 - [prcat](https://github.com/faw21/prcat) — AI PR reviewer for teammate PRs
