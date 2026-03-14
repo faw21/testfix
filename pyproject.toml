@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "testfix"
+name = "testfix-ai"
 version = "0.1.0"
 description = "AI-powered CLI to automatically fix failing tests — non-interactive, pipeable, CI-ready"
 readme = "README.md"
@@ -44,7 +44,7 @@ packages = ["src/testfix"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=testfix --cov-report=term-missing --cov-fail-under=80"
+addopts = "--cov=testfix --cov-report=term-missing --cov-fail-under=80 --ignore=tests/test_integration_llm.py"
 
 [tool.coverage.run]
 source = ["src/testfix"]
